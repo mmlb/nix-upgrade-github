@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+
+# SPDX-License-Identifier: AGPL-3.0-only
+
+set -e -o nounset -o pipefail
+
+if [[ -z ${SIMPLE_VERSION:-} ]]; then
+	version_extra='g${builtins.substring 0 9 src.rev}'
+fi
+
+if [[ -n ${NUG_DEBUG:=} ]]; then
+	set -x
+fi
+
+auth=()
+if [[ -n ${GITHUB_AUTH:-} ]]; then
+	auth=(-u "$GITHUB_AUTH")
+fi
+
+for file; do
+	(
+		branch=$(sed -n 's|^\s*#branch@date: \([^@]\+\)@.*|\1|p' $file)
+		if [[ $file == *@*@* ]]; then
+			commitish=${file##*@}
+			file=${file%@*}
+			branch=${file#*@}
+			file=${file%%@*}
+		elif [[ $file == *@* ]]; then
+			commitish=${file#*@}
+			branch=$commitish
+			file=${file%%@*}
+		fi
+
+		owner=$(awk '/owner =/ {print $3}' "$file" | sed -E 's|"(.*)";|\1|')
+		repo=$(awk '/repo =/ {print $3}' "$file" | sed -E 's|"?([^"]*)"?;|\1|')
+		if [[ $repo == *pname* ]]; then
+			repo=$(awk '/pname =/ {print $3}' "$file" | sed 's|"\(.*\)";|\1|')
+		fi
+		if [[ -z ${branch:-} ]]; then
+			url="https://api.github.com/repos/$owner/$repo"
+			branch=$(curl -fs "${auth[@]}" "$url" | jq -r '.default_branch')
+		fi
+
+		url="https://api.github.com/repos/$owner/$repo/commits"
+		filter='.[0]'
+		if [[ -n ${commitish:-} ]]; then
+			url+=/$commitish
+			filter='.'
+		fi
+
+		commit=$(curl -fs "${auth[@]}" "$url" | jq -r $filter)
+		commit_id=$(echo "$commit" | jq -r .sha)
+		commit_date=$(echo "$commit" | jq -r .commit.committer.date)
+		version=$(date +'unstable-%Y-%m-%d' --date="$commit_date")
+		sha256=$(nix-prefetch-url --quiet --unpack "https://github.com/$owner/$repo/archive/$commit_id.tar.gz" 2>/dev/null)
+		echo "file=$file"
+		sed -i \
+			-e "/rev =/ s|\".*\"|\"$commit_id\"|" \
+			-e "/sha256 =/ s|\".*\"|\"$sha256\"|" \
+			-e "/version =/ s|\".*\"|\"${version}${version_extra:-}\"|" \
+			"$file"
+		if grep -q '^\s*#branch@date:' "$file"; then
+			commit_date=$(date +%Y-%m-%d --date="$commit_date")
+			sed -i -e "/^\s*#branch@date:/ s|:.*|: $branch@$commit_date|" "$file"
+		fi
+	) &
+done
+wait
