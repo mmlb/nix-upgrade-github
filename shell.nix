@@ -1,3 +1,13 @@
-{ pkgs ? import <nixpkgs> { } }:
+{pkgs ? import <nixpkgs> {}}:
 with pkgs;
-mkShell { nativeBuildInputs = [ bash coreutils curl gawk gnugrep gnused ]; }
+  mkShell {
+    nativeBuildInputs = [
+      alejandra
+      bash
+      coreutils
+      curl
+      gawk
+      gnugrep
+      gnused
+    ];
+  }
