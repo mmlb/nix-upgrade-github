@@ -12,14 +12,10 @@ if [[ -n ${NUG_DEBUG:=} ]]; then
 	set -x
 fi
 
-auth=()
-if [[ -n ${GITHUB_AUTH:-} ]]; then
-	auth=(-u "$GITHUB_AUTH")
-fi
-
 for file; do
 	(
 		branch=$(sed -n 's|^\s*#branch@date: \([^@]\+\)@.*|\1|p' $file)
+		commitish=$branch
 		if [[ $file == *@*@* ]]; then
 			commitish=${file##*@}
 			file=${file%@*}
@@ -36,21 +32,17 @@ for file; do
 		if [[ $repo == *pname* ]]; then
 			repo=$(awk '/pname =/ {print $3}' "$file" | sed 's|"\(.*\)";|\1|')
 		fi
+
+		url="https://api.github.com/repos/$owner/$repo"
 		if [[ -z ${branch:-} ]]; then
-			url="https://api.github.com/repos/$owner/$repo"
-			branch=$(curl -fs "${auth[@]}" "$url" | jq -r '.default_branch')
+			branch=$(gh api "$url" --jq '.default_branch')
+			commitish=$branch
 		fi
+		url+=/commits/$commitish
 
-		url="https://api.github.com/repos/$owner/$repo/commits"
-		filter='.[0]'
-		if [[ -n ${commitish:-} ]]; then
-			url+=/$commitish
-			filter='.'
-		fi
-
-		commit=$(curl -fs "${auth[@]}" "$url" | jq -r $filter)
-		commit_id=$(echo "$commit" | jq -r .sha)
-		commit_date=$(echo "$commit" | jq -r .commit.committer.date)
+		commit=$(gh api "$url" --jq "{sha, commit}")
+		commit_id=$(jq -r .sha <<<"$commit")
+		commit_date=$(jq -r .commit.committer.date <<<"$commit")
 		version=$(date +'unstable-%Y-%m-%d' --date="$commit_date")
 		sha256=$(nix-prefetch-url --quiet --unpack "https://github.com/$owner/$repo/archive/$commit_id.tar.gz" 2>/dev/null)
 		echo "file=$file"

@@ -5,8 +5,8 @@ with pkgs;
       alejandra
       bash
       coreutils
-      curl
       gawk
+      gh
       gnugrep
       gnused
       jq
