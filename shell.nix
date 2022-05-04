@@ -9,5 +9,6 @@ with pkgs;
       gawk
       gnugrep
       gnused
+      jq
     ];
   }
